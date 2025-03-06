@@ -1,18 +1,41 @@
 import logging
 import warnings
 from dataclasses import dataclass
-from typing import List, Literal, overload
+from functools import lru_cache
+from typing import List
 
+import click
 import numpy as np
 from huggingface_hub import hf_hub_download
 from numpy.typing import NDArray
 
 from ..utils import AudioChunk
+from .protocol import PauseDetectionModel
 
 logger = logging.getLogger(__name__)
 
 # The code below is adapted from https://github.com/snakers4/silero-vad.
 # The code below is adapted from https://github.com/gpt-omni/mini-omni/blob/main/utils/vad.py
+
+
+@lru_cache
+def get_silero_model() -> PauseDetectionModel:
+    """Returns the VAD model instance and warms it up with dummy data."""
+    # Warm up the model with dummy data
+
+    try:
+        import importlib.util
+
+        mod = importlib.util.find_spec("onnxruntime")
+        if mod is None:
+            raise RuntimeError("Install fastrtc[vad] to use ReplyOnPause")
+    except (ValueError, ModuleNotFoundError):
+        raise RuntimeError("Install fastrtc[vad] to use ReplyOnPause")
+    model = SileroVADModel()
+    print(click.style("INFO", fg="green") + ":\t  Warming up VAD model.")
+    model.warmup()
+    print(click.style("INFO", fg="green") + ":\t  VAD model warmed up.")
+    return model
 
 
 @dataclass
@@ -239,33 +262,21 @@ class SileroVADModel:
 
         return speeches
 
-    @overload
-    def vad(
-        self,
-        audio_tuple: tuple[int, NDArray],
-        vad_parameters: None | SileroVadOptions,
-        return_chunks: Literal[True],
-    ) -> tuple[float, List[AudioChunk]]: ...
-
-    @overload
-    def vad(
-        self,
-        audio_tuple: tuple[int, NDArray],
-        vad_parameters: None | SileroVadOptions,
-        return_chunks: bool = False,
-    ) -> float: ...
+    def warmup(self):
+        for _ in range(10):
+            dummy_audio = np.zeros(102400, dtype=np.float32)
+            self.vad((24000, dummy_audio), None)
 
     def vad(
         self,
-        audio_tuple: tuple[int, NDArray],
-        vad_parameters: None | SileroVadOptions,
-        return_chunks: bool = False,
-    ) -> float | tuple[float, List[AudioChunk]]:
-        sampling_rate, audio = audio_tuple
-        logger.debug("VAD audio shape input: %s", audio.shape)
+        audio: tuple[int, NDArray[np.float32] | NDArray[np.int16]],
+        options: None | SileroVadOptions,
+    ) -> tuple[float, list[AudioChunk]]:
+        sampling_rate, audio_ = audio
+        logger.debug("VAD audio shape input: %s", audio_.shape)
         try:
-            if audio.dtype != np.float32:
-                audio = audio.astype(np.float32) / 32768.0
+            if audio_.dtype != np.float32:
+                audio_ = audio_.astype(np.float32) / 32768.0
             sr = 16000
             if sr != sampling_rate:
                 try:
@@ -274,18 +285,16 @@ class SileroVADModel:
                     raise RuntimeError(
                         "Applying the VAD filter requires the librosa if the input sampling rate is not 16000hz"
                     ) from e
-                audio = librosa.resample(audio, orig_sr=sampling_rate, target_sr=sr)
+                audio_ = librosa.resample(audio_, orig_sr=sampling_rate, target_sr=sr)
 
-            if not vad_parameters:
+            if not options:
                 vad_parameters = SileroVadOptions()
-            speech_chunks = self.get_speech_timestamps(audio, vad_parameters)
+            speech_chunks = self.get_speech_timestamps(audio_, vad_parameters)
             logger.debug("VAD speech chunks: %s", speech_chunks)
-            audio = self.collect_chunks(audio, speech_chunks)
-            logger.debug("VAD audio shape: %s", audio.shape)
-            duration_after_vad = audio.shape[0] / sr
-            if return_chunks:
-                return duration_after_vad, speech_chunks
-            return duration_after_vad
+            audio_ = self.collect_chunks(audio_, speech_chunks)
+            logger.debug("VAD audio shape: %s", audio_.shape)
+            duration_after_vad = audio_.shape[0] / sr
+            return duration_after_vad, speech_chunks
         except Exception as e:
             import math
             import traceback
@@ -293,7 +302,7 @@ class SileroVADModel:
             logger.debug("VAD Exception: %s", str(e))
             exec = traceback.format_exc()
             logger.debug("traceback %s", exec)
-            return math.inf
+            return math.inf, []
 
     def __call__(self, x, state, sr: int):
         if len(x.shape) == 1:

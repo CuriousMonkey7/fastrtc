@@ -8,9 +8,10 @@ import numpy as np
 from .reply_on_pause import (
     AlgoOptions,
     AppState,
+    ModelOptions,
+    PauseDetectionModel,
     ReplyFnGenerator,
     ReplyOnPause,
-    SileroVadOptions,
 )
 from .speech_to_text import get_stt_model
 from .utils import audio_to_float32, create_message
@@ -33,12 +34,13 @@ class ReplyOnStopWords(ReplyOnPause):
         fn: ReplyFnGenerator,
         stop_words: list[str],
         algo_options: AlgoOptions | None = None,
-        model_options: SileroVadOptions | None = None,
+        model_options: ModelOptions | None = None,
         can_interrupt: bool = True,
         expected_layout: Literal["mono", "stereo"] = "mono",
         output_sample_rate: int = 24000,
         output_frame_size: int = 480,
         input_sample_rate: int = 48000,
+        model: PauseDetectionModel | None = None,
     ):
         super().__init__(
             fn,
@@ -49,6 +51,7 @@ class ReplyOnStopWords(ReplyOnPause):
             output_sample_rate=output_sample_rate,
             output_frame_size=output_frame_size,
             input_sample_rate=input_sample_rate,
+            model=model,
         )
         self.stop_words = stop_words
         self.state = ReplyOnStopWordsState()
@@ -114,7 +117,7 @@ class ReplyOnStopWords(ReplyOnPause):
                     self.send_stopword()
                 state.buffer = None
             else:
-                dur_vad = self.model.vad((sampling_rate, audio), self.model_options)
+                dur_vad, _ = self.model.vad((sampling_rate, audio), self.model_options)
                 logger.debug("VAD duration: %s", dur_vad)
                 if (
                     dur_vad > self.algo_options.started_talking_threshold

@@ -3,7 +3,13 @@ from .credentials import (
     get_turn_credentials,
     get_twilio_turn_credentials,
 )
-from .reply_on_pause import AlgoOptions, ReplyOnPause, SileroVadOptions
+from .pause_detection import (
+    ModelOptions,
+    PauseDetectionModel,
+    SileroVadOptions,
+    get_silero_model,
+)
+from .reply_on_pause import AlgoOptions, ReplyOnPause
 from .reply_on_stopwords import ReplyOnStopWords
 from .speech_to_text import MoonshineSTT, get_stt_model
 from .stream import Stream
@@ -62,4 +68,8 @@ __all__ = [
     "get_tts_model",
     "KokoroTTSOptions",
     "wait_for_item",
+    "ModelOptions",
+    "PauseDetectionModel",
+    "get_silero_model",
+    "SileroVadOptions",
 ]

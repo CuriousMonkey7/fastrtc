@@ -28,6 +28,7 @@ nav:
   - Cookbook: cookbook.md
   - Deployment: deployment.md
   - Advanced Configuration: advanced-configuration.md
+  - VAD Gallery: vad_gallery.md
   - Utils: utils.md
   - Frequently Asked Questions: faq.md
 extra_javascript:
